@@ -10,7 +10,7 @@ type Notice = { kind: 'success' | 'error'; text: string } | null;
 
 function Logo() {
   return <div className="logo" aria-label="AmneziaWG">
-    <span className="brand-mark" aria-hidden="true"><i /><i /><i /><i /></span>
+    <img className="brand-icon" src="/amneziawg.svg" alt="" aria-hidden="true" />
     <span>AmneziaWG</span>
   </div>;
 }

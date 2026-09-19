@@ -16,6 +16,8 @@
 
 Проект вдохновлён [w0rng/amnezia-wg-easy](https://github.com/w0rng/amnezia-wg-easy), но написан отдельно и использует актуальные userspace-инструменты AmneziaWG.
 
+В интерфейсе используется [официальная иконка AmneziaWG](https://github.com/amnezia-vpn/amneziawg-windows-client/blob/master/ui/icon/wireguard.svg) из репозитория `amnezia-vpn/amneziawg-windows-client`.
+
 ## Быстрый запуск
 
 Требования: Linux-сервер, Docker Engine с Compose v2 и доступный UDP-порт.
