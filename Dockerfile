@@ -7,7 +7,6 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.json tsconfig.server.json vite.config.ts vitest.config.ts index.html ./
 COPY src ./src
-COPY public ./public
 RUN pnpm run build && pnpm prune --prod
 
 FROM golang:1.25-alpine AS awg-go-build
