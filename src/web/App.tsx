@@ -252,14 +252,14 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           </div>
           <div className="toolbar-actions">
             <button className="toolbar-button" onClick={() => restoreInput.current?.click()} disabled={busy === 'restore' || readOnly} title={readOnly ? 'Восстановление выполняется на primary-узле' : undefined}><ArchiveRestore size={19} /><span>Восстановить</span></button>
-            <button className="toolbar-button" onClick={() => void action('backup', () => download('/api/backup', 'awg-panel.awgbak'), 'Бэкап сохранён')} disabled={busy === 'backup'}><Download size={19} /><span>Резервная копия</span></button>
+            <button className="toolbar-button" onClick={() => void action('backup', () => download('/api/backup', 'wg0.json'), 'Бэкап сохранён')} disabled={busy === 'backup'}><Download size={19} /><span>Резервная копия</span></button>
             <button className="toolbar-button create" onClick={() => setCreateOpen(true)} disabled={readOnly} title={readOnly ? 'Создание выполняется на primary-узле' : undefined}><Plus size={20} /><span>Создать</span></button>
           </div>
         </div>
         {data.peers.length === 0 ? <div className="empty-state"><div><Users size={27} /></div><h3>Пока нет конфигураций</h3><p>{readOnly ? 'Replica ожидает синхронизацию с primary-узлом.' : 'Создайте первую и добавьте её в приложение AmneziaWG.'}</p><button className="secondary" onClick={() => setCreateOpen(true)} disabled={readOnly}><Plus size={17} /> Создать</button></div> :
           <div className="peer-list">{data.peers.map((peer) => <PeerRow key={peer.id} peer={peer} busy={busy === peer.id} locked={readOnly} onQr={() => setQrPeer(peer)} onDownload={() => void action(peer.id, () => download(`/api/peers/${peer.id}/config`, `${peer.name}.conf`), 'Конфигурация скачана')} onToggle={() => void action(peer.id, () => api.togglePeer(peer.id), peer.enabled ? 'Конфигурация отключена' : 'Конфигурация включена')} onDelete={() => { if (window.confirm(`Удалить «${peer.name}»? Восстановить ключи можно будет только из бэкапа.`)) void action(peer.id, () => api.deletePeer(peer.id), 'Конфигурация удалена'); }} />)}</div>}
       </section>
-      <input ref={restoreInput} className="hidden" type="file" accept=".awgbak,.json,application/json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void restore(file); }} />
+      <input ref={restoreInput} className="hidden" type="file" accept=".json,application/json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void restore(file); }} />
       <footer><span>AmneziaWG Panel</span><span>Конфигурации и ключи хранятся локально на сервере</span></footer>
     </main>
 

@@ -59,13 +59,20 @@ describe('panel API', () => {
     await firstAgent.post('/api/auth/login').send({ password: 'secret' });
     await firstAgent.post('/api/peers').send({ name: 'Tablet' }).expect(201);
     const backupResponse = await firstAgent.get('/api/backup').expect(200);
+    expect(backupResponse.headers['content-disposition']).toContain('filename="wg0.json"');
+    const backup = JSON.parse(backupResponse.text);
+    expect(Object.keys(backup).sort()).toEqual(['clients', 'server']);
+    expect(backup.server).toMatchObject({ address: '10.8.0.1' });
+    expect(Object.values(backup.clients)).toHaveLength(1);
+    expect(Object.values(backup.clients)[0]).toMatchObject({ name: 'Tablet', expiredAt: null, enabled: true });
+    expect(Object.values(backup.clients)[0]).toHaveProperty('preSharedKey');
 
     const secondRuntime = await runtime();
     secondRuntime.endpointHost = 'new.example.com';
     const second = await createApplication(secondRuntime);
     const secondAgent = request.agent(second.app);
     await secondAgent.post('/api/auth/login').send({ password: 'secret' });
-    await secondAgent.post('/api/backup/restore').send(JSON.parse(backupResponse.text)).expect(200);
+    await secondAgent.post('/api/backup/restore').send(backup).expect(200);
     const dashboard = await secondAgent.get('/api/dashboard').expect(200);
     const config = await secondAgent.get(`/api/peers/${dashboard.body.peers[0].id}/config`).expect(200);
     expect(config.text).toContain('Endpoint = new.example.com:51820');

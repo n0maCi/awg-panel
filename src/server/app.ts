@@ -161,10 +161,9 @@ export async function createApplication(runtime: RuntimeConfig): Promise<Applica
   });
 
   app.get('/api/backup', (_request, response) => {
-    const date = new Date().toISOString().slice(0, 10);
     response.set({
       'Content-Type': 'application/json; charset=utf-8',
-      'Content-Disposition': `attachment; filename="awg-panel-${date}.awgbak"`,
+      'Content-Disposition': 'attachment; filename="wg0.json"',
     });
     response.send(`${JSON.stringify(store.createBackup(), null, 2)}\n`);
   });

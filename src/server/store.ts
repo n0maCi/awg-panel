@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
-import type { BackupFile, PanelState, Peer, PortableEnvironment } from '../shared/types.js';
+import type { PanelState, Peer, PortableEnvironment, WgEasyBackupFile } from '../shared/types.js';
 import { SAFE_PEER_NAME } from './config.js';
 import { allocateAddress, addressBelongsToCidr, networkCidr } from './network.js';
 import { generateKeyPair, generatePresharedKey } from './keys.js';
@@ -31,6 +31,7 @@ const stateSchema: z.ZodType<PanelState> = z.object({
     presharedKey: keySchema,
     enabled: z.boolean(),
     createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime().optional(),
   })),
   environmentSnapshot: z.object({
     version: protocolVersionSchema,
@@ -43,12 +44,83 @@ const stateSchema: z.ZodType<PanelState> = z.object({
   }),
 });
 
-const backupSchema: z.ZodType<BackupFile> = z.object({
-  format: z.literal('awg-panel-backup'),
-  version: z.literal(1),
-  exportedAt: z.string().datetime(),
-  state: stateSchema,
+const wgEasyClientSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(64).regex(SAFE_PEER_NAME),
+  address: lineSchema,
+  privateKey: keySchema,
+  publicKey: keySchema,
+  preSharedKey: keySchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime().optional(),
+  expiredAt: z.string().datetime().nullable().optional(),
+  enabled: z.boolean(),
 });
+
+const wgEasyBackupSchema = z.object({
+  server: z.object({
+    privateKey: keySchema,
+    publicKey: keySchema,
+    address: lineSchema,
+  }).catchall(z.union([z.string(), z.number()])),
+  clients: z.record(z.string(), wgEasyClientSchema),
+}).superRefine((backup, context) => {
+  for (const [id, client] of Object.entries(backup.clients)) {
+    if (id !== client.id) context.addIssue({ code: 'custom', path: ['clients', id, 'id'], message: 'ID клиента не совпадает с ключом объекта' });
+  }
+});
+
+const protocolParameterNames = [
+  'Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4',
+  'H1', 'H2', 'H3', 'H4', 'I1', 'I2', 'I3', 'I4', 'I5',
+  'HeaderProtectionKey', 'ContentPaddingAddition', 'RekeyAfterTime',
+  'RekeyTimeout', 'RejectAfterTime', 'KeepaliveTimeout',
+  'MaxHandshakeAttempts', 'RandomTrailers', 'DisableCookies',
+] as const;
+
+function backupParameterName(name: string): string {
+  return `${name[0].toLowerCase()}${name.slice(1)}`;
+}
+
+function backupParameterValue(name: string, value: string): string | number {
+  return /^(?:S|H)\d$/.test(name) && /^\d+$/.test(value) ? Number(value) : value;
+}
+
+function compatibleBackupToState(input: unknown, environment: PortableEnvironment): PanelState {
+  const backup = wgEasyBackupSchema.parse(input);
+  const defaults = createProtocol(environment.version);
+  const allowed = new Set(Object.keys(defaults.values));
+  const importedValues: Record<string, string> = {};
+  for (const name of protocolParameterNames) {
+    const value = backup.server[backupParameterName(name)];
+    if (value !== undefined && allowed.has(name)) importedValues[name] = String(value);
+  }
+  const protocol = createProtocol(environment.version, { ...importedValues, ...environment.protocolOverrides }, defaults);
+  return parsePanelState({
+    schemaVersion: 1,
+    server: { privateKey: backup.server.privateKey, publicKey: backup.server.publicKey },
+    interface: {
+      address: environment.address,
+      dns: environment.dns,
+      allowedIps: environment.allowedIps,
+      mtu: environment.mtu,
+      persistentKeepalive: environment.persistentKeepalive,
+    },
+    protocol,
+    peers: Object.values(backup.clients).map((client) => ({
+      id: client.id,
+      name: client.name,
+      address: client.address,
+      privateKey: client.privateKey,
+      publicKey: client.publicKey,
+      presharedKey: client.preSharedKey,
+      enabled: client.enabled,
+      createdAt: client.createdAt,
+      updatedAt: client.updatedAt ?? client.createdAt,
+    })),
+    environmentSnapshot: structuredClone(environment),
+  });
+}
 
 export function parsePanelState(input: unknown): PanelState {
   const state = stateSchema.parse(input);
@@ -139,6 +211,7 @@ export class StateStore {
         presharedKey: generatePresharedKey(),
         enabled: true,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
       state.peers.push(peer);
       return structuredClone(peer);
@@ -153,6 +226,7 @@ export class StateStore {
         throw new Error('Конфигурация с таким именем уже существует');
       }
       peer.name = name;
+      peer.updatedAt = new Date().toISOString();
       return structuredClone(peer);
     });
   }
@@ -162,6 +236,7 @@ export class StateStore {
       const peer = state.peers.find((item) => item.id === id);
       if (!peer) throw new Error('Конфигурация не найдена');
       peer.enabled = !peer.enabled;
+      peer.updatedAt = new Date().toISOString();
       return structuredClone(peer);
     });
   }
@@ -179,18 +254,33 @@ export class StateStore {
     return peer ? structuredClone(peer) : undefined;
   }
 
-  createBackup(): BackupFile {
-    return {
-      format: 'awg-panel-backup',
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      state: this.get(),
+  createBackup(): WgEasyBackupFile {
+    const state = this.get();
+    const server: WgEasyBackupFile['server'] = {
+      privateKey: state.server.privateKey,
+      publicKey: state.server.publicKey,
+      address: state.interface.address.split('/')[0],
     };
+    for (const [name, value] of Object.entries(state.protocol.values)) {
+      server[backupParameterName(name)] = backupParameterValue(name, value);
+    }
+    const clients = Object.fromEntries(state.peers.map((peer) => [peer.id, {
+      id: peer.id,
+      name: peer.name,
+      address: peer.address,
+      privateKey: peer.privateKey,
+      publicKey: peer.publicKey,
+      preSharedKey: peer.presharedKey,
+      createdAt: peer.createdAt,
+      updatedAt: peer.updatedAt ?? peer.createdAt,
+      expiredAt: null,
+      enabled: peer.enabled,
+    }]));
+    return { server, clients };
   }
 
   async restoreBackup(input: unknown): Promise<void> {
-    const backup = backupSchema.parse(input);
-    const restored = parsePanelState(structuredClone(backup.state));
+    const restored = compatibleBackupToState(input, this.portableEnvironment);
     restored.protocol = createProtocol(restored.protocol.version, restored.protocol.values);
     const nextState = sameEnvironment(restored.environmentSnapshot, this.portableEnvironment)
       ? restored

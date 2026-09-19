@@ -23,6 +23,7 @@ export interface Peer {
   presharedKey: string;
   enabled: boolean;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface PanelState {
@@ -116,9 +117,25 @@ export interface DashboardData {
   cluster: ClusterStatus;
 }
 
-export interface BackupFile {
-  format: 'awg-panel-backup';
-  version: 1;
-  exportedAt: string;
-  state: PanelState;
+export interface WgEasyBackupClient {
+  id: string;
+  name: string;
+  address: string;
+  privateKey: string;
+  publicKey: string;
+  preSharedKey: string;
+  createdAt: string;
+  updatedAt: string;
+  expiredAt: string | null;
+  enabled: boolean;
+}
+
+export interface WgEasyBackupFile {
+  server: {
+    privateKey: string;
+    publicKey: string;
+    address: string;
+    [parameter: string]: string | number;
+  };
+  clients: Record<string, WgEasyBackupClient>;
 }
